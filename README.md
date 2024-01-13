@@ -6,7 +6,7 @@
 
 - [x] 通过 DOM API 呈现要展示的 app 字段
 - [x] 将 vdom 对象抽离，dom 渲染写死
-- [ ] 通过 vdom 动态生成 dom
+- [x] 通过 vdom 动态生成 dom
 - [ ] 将代码重构成 React API
 
 最终目标：`ReactDom.createRoot(document.querySelector('#root')).render(<App />)`
@@ -52,6 +52,8 @@ dom.appendChild(textNode)
 
 这里我们只是简单的将要渲染的 DOM 元素的相关信息抽离成一个 JavaScript 对象。
 
+这里其实与 Vue 的虚拟 DOM 结构类似，只不过是将 `children` 属性放置在了 `props` 对象中
+
 ```javascript
 const textEl = {
   type: 'TEXT_ELEMENT',
@@ -74,5 +76,51 @@ document.querySelector('#root').append(dom)
 const textNode = document.createTextNode('')
 textNode.nodeValue = textEl.props.nodeValue
 dom.appendChild(textNode)
+```
+
+### vdom 动态渲染成 dom
+
+在上一小节我们将 `el` 和 `textEl` 写死，实际上我们在开发过程中是根据元素动态生成对应的元素，因此我们需要创建 `createElement` 和 `createTextNode` 方法，动态生成 vdom 对象。
+
+```javascript
+function createElement(type, props, ...children) {
+  return {
+    type,
+    props: {
+      ...props,
+      children
+    }
+  }
+}
+function createTextNode(nodeValue) {
+  return {
+    type: 'TEXT_ELEMENT',
+    props: {
+      nodeValue,
+      children: [],
+    },
+  }
+}
+```
+
+当我们有了 vdom 对象时，就需要递归遍历生成真实的 dom 数，这就需要 `render` 函数来进行处理。同时这里只是简单的模拟，因此一些边界情况我们会有一些忽略。
+
+```javascript
+function render(el, container) {
+  const dom = el.type === 'TEXT_ELEMENT' ? document.createTextNode("") : document.createElement(el.type)
+  Object.keys(el.props).forEach(key => {
+    if (key !== 'children') {
+      dom[key] = el.props[key]
+    }
+  })
+  const children = el.props.children
+  children.forEach(child => {
+    const childEl = typeof child === 'string' ? createTextNode(child) : child
+    render(childEl, dom)
+  })
+  container.append(dom)
+}
+const el = createElement('div', { id: 'app' }, 'hello', '-react')
+render(el, document.querySelector('#root'))
 ```
 
