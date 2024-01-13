@@ -5,7 +5,7 @@
 ## 在页面中呈现 app
 
 - [x] 通过 DOM API 呈现要展示的 app 字段
-- [ ] 将 vdom 对象抽离，dom 渲染写死
+- [x] 将 vdom 对象抽离，dom 渲染写死
 - [ ] 通过 vdom 动态生成 dom
 - [ ] 将代码重构成 React API
 
@@ -44,5 +44,35 @@ dom.appendChild(textNode)
   <script type="module" src="./main.js"></script>
 </body>
 </html>
+```
+
+### 将 vdom 抽离
+
+不管是 React 还是 Vue 这两个框架都采用了虚拟 DOM，这是因为直接修改真实的 DOM 很难跟踪状态发生的改变，同时频繁的操作真是 DOM 会造成性能地下。虚拟 DOM 是一个编程理念，UI 以一种理想化或者虚拟化的方式保存在内存中，并且它是一个相对简单的 JavaScript 对象。
+
+这里我们只是简单的将要渲染的 DOM 元素的相关信息抽离成一个 JavaScript 对象。
+
+```javascript
+const textEl = {
+  type: 'TEXT_ELEMENT',
+  props: {
+    nodeValue: 'app',
+    children: []
+  }
+}
+const el = {
+  type: 'div',
+  props: {
+    id: 'app',
+    children: [textEl]
+  }
+}
+const dom = document.createElement(el.type)
+dom.id = el.props.id
+document.querySelector('#root').append(dom)
+
+const textNode = document.createTextNode('')
+textNode.nodeValue = textEl.props.nodeValue
+dom.appendChild(textNode)
 ```
 
