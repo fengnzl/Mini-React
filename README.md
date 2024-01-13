@@ -7,7 +7,7 @@
 - [x] 通过 DOM API 呈现要展示的 app 字段
 - [x] 将 vdom 对象抽离，dom 渲染写死
 - [x] 通过 vdom 动态生成 dom
-- [ ] 将代码重构成 React API
+- [x] 将代码重构成 React API
 
 最终目标：`ReactDom.createRoot(document.querySelector('#root')).render(<App />)`
 
@@ -122,5 +122,47 @@ function render(el, container) {
 }
 const el = createElement('div', { id: 'app' }, 'hello', '-react')
 render(el, document.querySelector('#root'))
+```
+
+### 代码重构成 React API
+
+我们需要将上述代码重构成平时类似写 React 代码时候的结构，如引用、使用等，如下所示：
+
+![image-20240113231758697](/Users/fengliu/Desktop/learn_react/mini-react/images/image-20240113231758697.png)
+
+这里我们先暂时忽略 `JSX`，根据之前分析，我们可以写出 `ReactDOM` 对象如下所示：
+
+```javascript
+// /core/ReactDOM.js
+import { render } from "./React.js"
+const ReactDOM = {
+  createRoot(container) {
+    return {
+      render(app) {
+        render(app, container)
+      }
+    }
+  }
+}
+export default ReactDOM
+```
+
+然后将之前的 `createElement` 、`createTextNode `和 `render`  等函数移至 `/core/React.js` 文件中
+
+之后我们在 `App.js`  文件中编写如下代码 
+
+```javascript
+import { createElement } from './core/React.js'
+const App = createElement('div', { id: 'app' }, 'hello', '-world', '-react')
+export default App
+```
+
+之后在 `main.js` 文件中引入即可，至此重构工作已经完成
+
+```javascript
+import ReactDOM from './core/ReactDOM.js'
+import App from './App.js'
+
+ReactDOM.createRoot(document.querySelector('#root')).render(App)
 ```
 
