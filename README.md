@@ -134,12 +134,12 @@ render(el, document.querySelector('#root'))
 
 ```javascript
 // /core/ReactDOM.js
-import { render } from "./React.js"
+import React from "./React.js"
 const ReactDOM = {
   createRoot(container) {
     return {
       render(app) {
-        render(app, container)
+        React.render(app, container)
       }
     }
   }
@@ -152,8 +152,8 @@ export default ReactDOM
 之后我们在 `App.js`  文件中编写如下代码 
 
 ```javascript
-import { createElement } from './core/React.js'
-const App = createElement('div', { id: 'app' }, 'hello', '-world', '-react')
+import React from './core/React.js'
+const App = React.createElement('div', { id: 'app' }, 'hello', '-world', '-react')
 export default App
 ```
 

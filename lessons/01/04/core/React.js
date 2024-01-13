@@ -34,7 +34,8 @@ function render(el, container) {
   container.append(dom)
 }
 
-export {
+const React = {
   createElement,
   render
 }
+export default React
