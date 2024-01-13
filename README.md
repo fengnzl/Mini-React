@@ -167,3 +167,59 @@ import App from './App.js'
 ReactDOM.createRoot(document.querySelector('#root')).render(App)
 ```
 
+## 解析 JSX
+
+平时，如果我们写 React 代码都会使用 `JSX` 语法，而不是使用 `React.createElement` API 进行书写，因此我们这里也需要支持解析 `JSX` 语法。
+
+如果平时我们使用 CDN 快速体验时，需要使用 `babel` 将 `JSX` 代码解析成 `React.createElement` 的形式，这里我们只需要使用 `vite` 即可实现。
+
+通过  `pnpm create vite`  命令使用 `vite` 快速创建一个项目，并将之前的代码拷贝一份过来即可，这里我们暂时还没处理  `Functional Component` 因此，只能先使用以下形式
+
+```jsx
+// app.jsx
+import React from './core/React.js'
+const App = <div id="app">hello<span>-react</span></div>
+function AppOne() {
+  return <div>this is jsx</div>
+}
+console.log(AppOne)
+export default App
+```
+
+同时 `main.js` 修改如下
+
+```javascript
+import React from './core/React.js';
+import ReactDOM from "./core/ReactDom.js";
+import App from "./App.jsx";
+ReactDOM.createRoot(document.querySelector("#root")).render(App);
+```
+
+如果我们想自定义 React 的名字可以使用以下两种方法
+
+- 使用 `js pragma`
+
+  ```jsx
+  // js pragma
+  /**@jsx CReact.createElement */
+  import CReact from "./core/React.js";
+  const App = <div>hi-mini-react</div>;
+  ```
+
+  ![image-20240114004701612](/Users/fengliu/Desktop/learn_react/mini-react/images/image-20240114004701612.png)
+
+- 配置 `vite esbuild` 配置语法
+
+```js
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  // https://esbuild.github.io/api/#jsx-factory
+  esbuild: {
+    jsxFactory: 'MyReact.createElement',
+    jsxFragment: 'Fragment',
+    jsxInject: `import MyReact from './core/React'`,
+  },
+})
+```
+
