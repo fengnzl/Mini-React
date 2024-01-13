@@ -3,7 +3,9 @@ function createElement(type, props, ...children) {
     type,
     props: {
       ...props,
-      children,
+      children: children.map((child) => {
+        return typeof child === 'string' ? createTextNode(child) : child
+      }),
     },
   }
 }
@@ -28,8 +30,7 @@ function render(el, container) {
   })
   const children = el.props.children
   children.forEach((child) => {
-    const childEl = typeof child === 'string' ? createTextNode(child) : child
-    render(childEl, dom)
+    render(child, dom)
   })
   container.append(dom)
 }
