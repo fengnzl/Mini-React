@@ -249,3 +249,105 @@ function workRun(IdleDeadline) {
 requestIdleCallback(workRun)
 ```
 
+## 实现 fiber 架构
+
+知道上面的原理之后，我们如何做到每次只渲染几个节点，且在下次任务执行的时候依然从之前的位置执行？
+
+这就需要我们将原来的树结构转换为链表，在每个节点中记录 child、sibling、parent 信息，从而在下次执行的任务的时候，通过当前的节点对象找到待执行的节点信息。主要按照以下顺序来判读
+
+- 时候有 child 节点，有则处理 child 节点
+- 没有 child 节点，判断是否有 sibling 兄弟节点，如果有则处理 sibling 节点
+- 如果都没有，则处理叔叔节点
+
+具体如下面所示：
+
+![node](./images/node.png)
+
+在这里我们实现 `performWorkOfUnit` 函数，在这里我们主要处理以下事件
+
+- 生成 dom，将生成的 dom append 到父元素中
+- 处理生成 dom 的 props
+- 建立当前节点的链表关系（重难点：`child`、`sibling` 和 `parent`）
+- 按照之前所说顺序返回下一个待处理节点，最后可能没有节点，说明已经处理完成，此时需要在 `requestIdleCallback` 函数增加相应的判断，没有节点则结束任务
+
+```js
+// core/React.js
+let nextWorkOfUnit
+function render(el, container) {
+  nextWorkOfUnit = {
+    dom: container,
+    props: {
+      children: [el],
+    },
+  }
+}
+function createDom(type) {
+  return type === TEXT_ELEMENT
+    ? document.createTextNode('')
+    : document.createElement(type)
+}
+function updateProps(dom, props) {
+  Object.keys(props).forEach((key) => {
+    if (key !== 'children') {
+      dom[key] = props[key]
+    }
+  })
+}
+function initChildren(fiber) {
+  const children = fiber.props.children
+  let prevChild
+  children.forEach((child, index) => {
+    const nextFiber = {
+      type: child.type,
+      props: child.props,
+      child: null,
+      parent: fiber,
+      sibling: null,
+    }
+    // 处理第一个 child
+    if (index === 0) {
+      fiber.child = nextFiber
+    } else {
+      // 将当前节点赋值给上一个相邻节点的兄弟
+      prevChild.sibling = nextFiber
+    }
+    prevChild = nextFiber
+  })
+}
+function performWorkOfUnit(fiber) {
+  // 生成 dom
+  if (!fiber.dom) {
+    const dom = (fiber.dom = createDom(fiber.type))
+    // append dom 到 父元素
+    fiber.parent.dom.append(dom)
+    // 处理 props
+    updateProps(dom, fiber.props)
+  }
+  // 处理 children
+  initChildren(fiber)
+  // 返回下一个要处理的节点
+  // 如果有子节点
+  if (fiber.child) {
+    return fiber.child
+  }
+  // 如果有兄弟节点
+  if (fiber.sibling) {
+    return fiber.sibling
+  }
+  // 返回叔叔节点
+  return fiber.parent?.sibling
+}
+function workLoop(IdleDeadline) {
+  let shouldYield = false
+  while (!shouldYield && nextWorkOfUnit) {
+    // run task
+    nextWorkOfUnit = performWorkOfUnit(nextWorkOfUnit)
+    //当前闲置时间没有时，进入到下一个闲置时间执行任务
+    shouldYield = IdleDeadline.timeRemaining() < 1
+  }
+  requestIdleCallback(workLoop)
+}
+
+requestIdleCallback(workLoop)
+```
+
