@@ -223,3 +223,29 @@ export default defineConfig({
 })
 ```
 
+## 实现任务调度器
+
+上述 `render` 函数执行的时候我们可以发现，当 vdom 层级过深时，会一直递归下去。在浏览器中，在浏览器中 GUI 渲染线程和 JS 引擎线程是互斥的。因此，即使在代码中先创建了 DOM 元素，也不会立即呈现到屏幕上，而是等待主线程上的执行完成。从而层级过深会导致渲染卡顿。
+
+为了解决上述问题，我们就需要将一个大任务分成多个小任务进行执行。这里我们采用 [requestIdleCallback](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/requestIdleCallback) 来将任务在浏览器空闲时候进行调用。
+
+模拟过程如下所示：
+
+```javascript
+let taskId = 0
+function workRun(IdleDeadline) {
+  taskId++
+
+  let shouldYield = false
+  while (!shouldYield) {
+    // run task
+    console.log(`taskId: ${taskId} run task`)
+    //当前闲置时间没有时，进入到下一个闲置时间执行任务
+    shouldYield = IdleDeadline.timeRemaining() < 1
+  }
+  requestIdleCallback(workRun)
+}
+
+requestIdleCallback(workRun)
+```
+
