@@ -129,7 +129,7 @@ render(el, document.querySelector('#root'))
 
 我们需要将上述代码重构成平时类似写 React 代码时候的结构，如引用、使用等，如下所示：
 
-![image-20240113231758697](/Users/fengliu/Desktop/learn_react/mini-react/images/image-20240113231758697.png)
+![image-20240113231758697](./images/image-20240113231758697.png)
 
 这里我们先暂时忽略 `JSX`，根据之前分析，我们可以写出 `ReactDOM` 对象如下所示：
 
@@ -206,7 +206,7 @@ ReactDOM.createRoot(document.querySelector("#root")).render(App);
   const App = <div>hi-mini-react</div>;
   ```
 
-  ![image-20240114004701612](/Users/fengliu/Desktop/learn_react/mini-react/images/image-20240114004701612.png)
+  ![image-20240114004701612](./images/image-20240114004701612.png)
 
 - 配置 `vite esbuild` 配置语法
 
