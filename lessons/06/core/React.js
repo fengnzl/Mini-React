@@ -64,22 +64,33 @@ function initChildren(fiber, children) {
     prevChild = nextFiber
   })
 }
+// 处理函数式组件
+function updateFunctionComponent(fiber) {
+  // 函数式组件不用生成 dom
+  const children = [fiber.type(fiber.props)]
+  initChildren(fiber, children)
+}
+// 处理普通组件
+function updateHostComponent(fiber) {
+  // 生成 dom
+  if (!fiber.dom) {
+    const dom = (fiber.dom = createDom(fiber.type))
+    // 处理 props
+    updateProps(dom, fiber.props)
+  }
+  // 处理 children 函数式组件需要单独处理
+  const children = fiber.props.children
+  initChildren(fiber, children)
+}
 function performWorkOfUnit(fiber) {
   // 新增 FC 判断 
   const isFunctionComponent = typeof fiber.type === 'function'
-  // 函数式组件不用生成 dom
-  if (!isFunctionComponent) {
-    // 生成 dom
-    if (!fiber.dom) {
-      const dom = (fiber.dom = createDom(fiber.type))
-      // 处理 props
-      updateProps(dom, fiber.props)
-    }
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber)
+  } else {
+    updateHostComponent(fiber)
   }
-  
-  // 处理 children 函数式组件需要单独处理
-  const children = isFunctionComponent ? [fiber.type(fiber.props)] : fiber.props.children
-  initChildren(fiber, children)
+
   // 返回下一个要处理的节点
   // 如果有子节点
   if (fiber.child) {
