@@ -388,3 +388,241 @@ function commitWork(fiber) {
 }
 ```
 
+## 实现 function component
+
+之前我们在 `App.jsx` 文件中并没有写成函数的形式，因为当初我们还不支持该写法，现在我们就开始处理函数组件。
+
+首先在 `App.jsx` 文件中导出一个函数组件，并在浏览器中输出其转换后的信息
+
+```jsx
+function Counter() {
+  return <div>count</div>
+}
+function App() {
+  return (
+    <div id="app">
+      <div>hello-mini-react</div>
+      <Counter></Counter>
+    </div>
+  )
+}
+export default App
+```
+
+我们在 `render` 函数中添加以下代码 `console.log(el)` 可以看到此时 `el` 是一个函数，返回值是我们需要的 vdom 结构
+
+![image-20240115193754324](./images/image-20240115193754324.png)
+
+因此我们需要在 `render` 函数中增加对 `el` 函数式组件的判断。
+
+```js
+function render(el, container) {
+  el = typeof el === 'function' ? el() : el
+  console.log(el)
+  nextWorkOfUnit = {
+    dom: container,
+    props: {
+      children: [el],
+    },
+  }
+}
+```
+
+此时我们可以看到根元素的结构如下所示：
+
+![image-20240115194113541](./images/image-20240115194113541.png)
+
+此时页面中除了 `Counter` 组件以为，其他已经可以正常展示，上述 `dom` 结构如下图所示
+
+![fc](./images/fc.png)
+
+这里 `Counter` 实际上并不需要生成 `dom`，只需处理下面的节点即可，因此我们在 `performWorkOfUnit`  函数中进行如下调整
+
+```js
+function performWorkOfUnit(fiber) {
+  // 新增 FC 判断 
+  const isFunctionComponent = typeof fiber.type === 'function'
+  // 函数式组件不用生成 dom
+  if (!isFunctionComponent) {
+    // 生成 dom
+    if (!fiber.dom) {
+      const dom = (fiber.dom = createDom(fiber.type))
+      // 处理 props
+      updateProps(dom, fiber.props)
+    }
+  }
+  
+  // 处理 children 函数式组件需要单独处理
+  const children = isFunctionComponent ? [fiber.type()] : fiber.props.children
+  initChildren(fiber, children)
+  // ....
+}
+function initChildren(fiber, children) {
+  // 移除这段 const children = fiber.props.children
+}
+```
+
+此时我们可以页面将 `Counter` 内容渲染成了 `undefined`，同时浏览器报错如下所示：
+
+```js
+React.js:113 Uncaught TypeError: Cannot read properties of undefined (reading 'append')
+    at commitWork (React.js:113:20)
+    at commitWork (React.js:114:20)
+    at commitWork (React.js:115:22)
+    at commitWork (React.js:114:20)
+    at commitRoot (React.js:108:3)
+    at workLoop (React.js:103:5)
+```
+
+这是因为 `commitWork` 函数中添加 `dom`  的时候 `Counter`  并没有 dom，需要继续向上找到 `App` 节点进行挂载，此时修改代码如下所示
+
+```js
+function commitWork(fiber) {
+  if (!fiber) return
+  let fiberParent = fiber.parent
+  // 如果父级没有 dom 函数值组件
+  if (!fiberParent.dom) {
+    fiberParent = fiberParent.parent
+  }
+  fiberParent.dom.append(fiber.dom)
+  if (fiber.child) commitWork(fiber.child)
+  if (fiber.sibling) commitWork(fiber.sibling)
+}
+```
+
+此时我们发现页面不仅渲染出了 `Counter` 组件，还多渲染了 `undefined`，这是当 `fiber.dom` 不存在的时候我们仍然将其添加到了父级元素中，因此需要新增如下判断。
+
+```js
+if (fiber.dom) fiberParent.dom.append(fiber.dom)
+```
+
+这时我们可以看到页面渲染正常了，这里父级判断我们只判断了一层，如果函数式组件嵌套使用的时候，则页面渲染同样会出现 `Uncaught TypeError: Cannot read properties of undefined (reading 'append')` 的错误。
+
+```js
+function CounterContainer() {
+  return <Counter></Counter>
+}
+function App() {
+  return (
+    <div id="app">
+      <div>hello-mini-react</div>
+      <CounterContainer />
+      {/* <Counter></Counter> */}
+    </div>
+  )
+}
+export default App
+```
+
+因此，在 `commitWork` 函数这里我们不能只使用 `if` 判断，而是递归寻找直至找到有 `dom` 元素的节点
+
+```js
+// 如果父级没有 dom 函数值组件
+while (!fiberParent.dom) {
+  fiberParent = fiberParent.parent
+}
+```
+
+如果我们在这里同时引用两个函数式组件，会正常渲染嘛？
+
+```jsx
+function Counter() {
+  return <div>count</div>
+}
+function App() {
+  return (
+    <div id="app">
+      <div>hello-mini-react</div>
+      <Counter></Counter>
+      <Counter></Counter>
+    </div>
+  )
+}
+export default App
+```
+
+我们发现页面只会渲染出一个 `count`，由之前展示的 `dom` 结构图可知，在第一个 `Counter` 组件渲染之后，它要找到下一个需要渲染的 `Counter` 组件，这时渲染的文本节点没有 `child` 和 `sibling` 节点，需要找到 `Counter` 的 `sibling` 节点，而我们现在在上面判断之后返回的是 `fiber.parent?.sibling` 这个只会找到 `div` 并没有到 `Counter` 节点，因此需要修改成下面形式, 此时页面即可正常展示
+
+```js
+function performWorkOfUnit(fiber) {
+  //...
+  // 返回下一个要处理的节点
+  // 如果有子节点
+  if (fiber.child) {
+    return fiber.child
+  }
+  let nextFiber = fiber
+  while (nextFiber) {
+    // 如果有兄弟节点
+    if (nextFiber.sibling) {
+      return nextFiber.sibling
+    }
+    nextFiber = nextFiber.parent
+  }
+}
+```
+
+我们的函数式组件可以接受 `props`， 我们修改 `App.jsx` 如下
+
+```jsx
+function Counter({ num }) {
+  return <div>count: { num }</div>
+}
+function App() {
+  return (
+    <div id="app">
+      <div>hello-mini-react</div>
+      <Counter num={1}></Counter>
+      <Counter num={2}></Counter>
+    </div>
+  )
+}
+export default App
+
+```
+
+此时页面会报错如下所示
+
+```js
+App.jsx:1 Uncaught TypeError: Cannot destructure property 'num' of 'undefined' as it is undefined.
+    at Object.Counter [as type] (App.jsx:1:27)
+    at performWorkOfUnit (React.js:80:49)
+    at workLoop (React.js:100:22)
+```
+
+此时经过断点我们可以发现，在调用 `fiber.type()` 函数的时候报错，因为函数接收参数，而我们却没有传递
+
+![image-20240115215212047](./images/image-20240115215212047.png)
+
+因此我们需要将 `fiber.props` 进行传入，这时我们可以看到页面报错如下所示：
+
+```js
+React.js:40 Uncaught TypeError: Cannot convert undefined or null to object
+    at Function.keys (<anonymous>)
+    at updateProps (React.js:40:10)
+    at performWorkOfUnit (React.js:75:7)
+    at workLoop (React.js:100:22)
+```
+
+此时我们断点可以发现 `fiber.type(fiber.props)` 调用返回如下所示，
+
+![image-20240115215705986](./images/image-20240115215705986.png)
+
+可以看到 `children` 有一个 `child` 是数字，我们在之前只处理了 `string` 没有处理 `number` 类型，因此我们需要在 `createElement` 中对 `children` 处理如下所示
+
+```js
+function createElement(type, props, ...children) {
+  return {
+    type,
+    props: {
+      ...props,
+      children: children.map((child) => {
+        const isTextNode = typeof child === 'string' || typeof child === 'number'
+        return isTextNode ? createTextNode(child) : child
+      }),
+    },
+  }
+}
+```
+
+这时我们的页面即可正常展示，同理 `boolean` 类型等可以做类似处理
