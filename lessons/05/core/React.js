@@ -27,7 +27,6 @@ function render(el, container) {
       children: [el],
     },
   }
-  root = nextWorkOfUnit
 }
 function createDom(type) {
   return type === TEXT_ELEMENT
@@ -67,7 +66,7 @@ function performWorkOfUnit(fiber) {
   if (!fiber.dom) {
     const dom = (fiber.dom = createDom(fiber.type))
     // append dom 到 父元素
-    // fiber.parent.dom.append(dom)
+    fiber.parent.dom.append(dom)
     // 处理 props
     updateProps(dom, fiber.props)
   }
@@ -85,7 +84,6 @@ function performWorkOfUnit(fiber) {
   // 返回叔叔节点
   return fiber.parent?.sibling
 }
-let root = null
 function workLoop(IdleDeadline) {
   let shouldYield = false
   while (!shouldYield && nextWorkOfUnit) {
@@ -94,21 +92,7 @@ function workLoop(IdleDeadline) {
     //当前闲置时间没有时，进入到下一个闲置时间执行任务
     shouldYield = IdleDeadline.timeRemaining() < 1
   }
-  // 对 root 节点只执行一次渲染
-  if (!nextWorkOfUnit && root) {
-    commitRoot(root)
-  }
   requestIdleCallback(workLoop)
-}
-function commitRoot() {
-  commitWork(root.child)
-  root = null
-}
-function commitWork(fiber) {
-  if (!fiber) return
-  fiber.parent.dom.append(fiber.dom)
-  if (fiber.sibling) commitWork(fiber.sibling)
-  if (fiber.child) commitWork(fiber.child)
 }
 
 requestIdleCallback(workLoop)

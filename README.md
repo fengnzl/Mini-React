@@ -351,3 +351,40 @@ function workLoop(IdleDeadline) {
 requestIdleCallback(workLoop)
 ```
 
+## 实现统一提交
+
+当我们使用 `requestIdleCallback`  将渲染任务分成若干个小任务在空闲时间渲染时，可能由于中途没有空余时间，而导致后续节点一直没有渲染，此时用户就会看到渲染出来的部分 dom。
+
+为了解决这个问题就需要我们在生成 dom 的时候不要立即将 dom 添加到父级容器中，而是在任务处理完成后统一进行添加，这样就能进行统一的渲染。这里我们主要在 `nextWorkOfUnit` 为空时，进行统一渲染。逻辑如下所示：
+
+```js
+let root = null
+function render(el, container) {
+  nextWorkOfUnit = {
+    dom: container,
+    props: {
+      children: [el],
+    },
+  }
+  root = nextWorkOfUnit
+}
+function workLoop(IdleDeadline) {
+  //...
+  // 对 root 节点只执行一次渲染
+  if (!nextWorkOfUnit && root) {
+    commitRoot(root)
+  }
+  requestIdleCallback(workLoop)
+}
+function commitRoot() {
+  commitWork(root.child)
+  root = null
+}
+function commitWork(fiber) {
+  if (!fiber) return
+  fiber.parent.dom.append(fiber.dom)
+  if (fiber.sibling) commitWork(fiber.sibling)
+  if (fiber.child) commitWork(fiber.child)
+}
+```
+
