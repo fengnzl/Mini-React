@@ -675,3 +675,40 @@ function performWorkOfUnit(fiber) {
 }
 ```
 
+## 实现事件绑定
+
+我们先在组件上绑定一个时间，看看 `jsx` 转换后的代码是什么样的，代码修改如下：
+
+```jsx
+function Counter({ num }) {
+  function handleClick() {
+    console.log('click')
+  }
+  return (
+    <div>
+      count: {num} <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+![image-20240117213215015](./images/image-20240117213215015.png)
+
+解析后如下所示，因此我们可以在处理 `props`  的时候，通过判断属性是否以 `on` 开头来处理事件，我们将 `updateProps`  函数修改成如下代码
+
+```js
+function updateProps(dom, props) {
+  Object.keys(props).forEach((key) => {
+    if (key !== 'children') {
+      // 是否是事件
+      if (key.startsWith('on')) {
+        const eventType = key.slice(2).toLowerCase()
+        dom.addEventListener(eventType, props[key])
+      } else {
+        dom[key] = props[key]
+      }
+    }
+  })
+}
+```
+
