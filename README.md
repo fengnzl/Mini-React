@@ -712,3 +712,107 @@ function updateProps(dom, props) {
 }
 ```
 
+## 实现更新 props
+
+我们要实现 `props` 的更新，首先要在获取新的 `dom` 树的同时可以获取到先前的 `dom` 树，然后在相同的节点下对比 `props` 的差异，从而完成更新。
+
+首先我们要怎么获取新的 `dom` 树，我们在渲染的时候调用了 `commitRoot` 函数，在这里我们将最后渲染的 `root` 节点清空，这个渲染的 `root` 节点就是我们后需要更新的 `dom` 树。因此，我们需要一个变量将其保存起来，更新时，在这个 `dom` 上进行对比更新。
+
+```js
+let currentRoot = null
+function commitRoot() {
+  commitWork(root.child)
+  // 保存渲染后的 dom 树
+  currentRoot = root
+  root = null
+}
+// 新增 update 函数
+function update() {
+  nextWorkOfUnit = {
+    dom: currentRoot.dom,
+    props: currentRoot.props,
+  }
+  root = nextWorkOfUnit
+}
+```
+
+我们获取了最新 `dom` 那么如何找到对应的老节点呢，这就需要我们在新节点上有一个指针可以指向之前的老节点，如图所示：
+
+![alternate.png](./images/alternate.png)
+
+我们在 `update` 函数中 `nextWorkOfUnit`  新增 `alternate` 属性指向之前的 `dom`，然后在 `initChildren` 函数中进行相应的节点关联，主要代码如下所示：
+
+```js
+function initChildren(fiber, children) {
+  let oldFiber = fiber.alternate?.child
+  let prevChild
+  children.forEach((child, index) => {
+    const isSameType = oldFiber && oldFiber.type === child.type
+    let nextFiber
+    // 如果是同一种类型 说明是 update,此时不用在重新创建 dom
+    // 增加 effectTag 从而在 commitWork 中判断是更新还是新增，这里更新我们暂时处理props
+    if (isSameType) {
+      nextFiber = {
+        type: child.type,
+        props: child.props,
+        child: null,
+        parent: fiber,
+        sibling: null,
+        dom: oldFiber.dom,
+        alternate: oldFiber,
+        effectTag: 'update',
+      }
+    } else {
+      nextFiber = {
+        type: child.type,
+        props: child.props,
+        child: null,
+        parent: fiber,
+        sibling: null,
+        dom: null,
+        effectTag: 'placement',
+      }
+    }
+    // 更新 oldFiber 从而与最新的节点保持对应关系
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling
+    }
+
+    // 处理第一个 child
+    if (index === 0) {
+      fiber.child = nextFiber
+    } else {
+      // 将当前节点赋值给上一个相邻节点的兄弟
+      prevChild.sibling = nextFiber
+    }
+    prevChild = nextFiber
+  })
+}
+```
+
+然后我们在  `commitWork` 函数中判断如果是更新，则只需要调用 `updateProps` 函数即可。
+
+```js
+function commitWork(fiber) {
+  //...
+  // 更新 props
+  if (fiber.effectTag === 'update') {
+    updateProps(fiber.dom, fiber.props, fiber.alternate.props)
+  } else if (fiber.effectTag === 'placement') {
+    // 新增
+    if (fiber.dom) fiberParent.dom.append(fiber.dom)
+  }
+
+  commitWork(fiber.child)
+  commitWork(fiber.sibling)
+}
+```
+
+而 `updateProps`  则需要调整一下接收待更新和以前的 `props` ，按照以下规则尽心更新
+
+- 老得 `props` 有，新的 `props`  没有，则删除
+- 老得 `props` 没有，新的 `props` 有，则新增
+- 老得 `props` 有，新的 `props` 有，且值不相等，则修改
+- 注意：相同事件名称更新时，需先移除掉老的事件
+
+同时这里的 `root` 无法明确具体代表什么，实际上是正在处理的 `root` (work in progress)，因此我们将其重新命名为 `wipRoot`，同时 `initChildren` 这个名称也并不是很恰当，我们与 `React` 中对齐，将其重命名为 `reconcile`

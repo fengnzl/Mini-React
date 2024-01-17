@@ -21,16 +21,16 @@ function createTextNode(nodeValue) {
   }
 }
 let nextWorkOfUnit
-let root = null
+let wipRoot = null
 let currentRoot = null
 function render(el, container) {
-  nextWorkOfUnit = {
+  wipRoot = {
     dom: container,
     props: {
       children: [el],
     },
   }
-  root = nextWorkOfUnit
+  nextWorkOfUnit = wipRoot
 }
 function createDom(type) {
   return type === TEXT_ELEMENT
@@ -63,7 +63,7 @@ function updateProps(dom, nextProps, prevProps) {
     }
   })
 }
-function initChildren(fiber, children) {
+function reconcile(fiber, children) {
   let oldFiber = fiber.alternate?.child
   let prevChild
   children.forEach((child, index) => {
@@ -112,7 +112,7 @@ function initChildren(fiber, children) {
 function updateFunctionComponent(fiber) {
   // 函数式组件不用生成 dom
   const children = [fiber.type(fiber.props)]
-  initChildren(fiber, children)
+  reconcile(fiber, children)
 }
 // 处理普通组件
 function updateHostComponent(fiber) {
@@ -124,7 +124,7 @@ function updateHostComponent(fiber) {
   }
   // 处理 children 函数式组件需要单独处理
   const children = fiber.props.children
-  initChildren(fiber, children)
+  reconcile(fiber, children)
 }
 function performWorkOfUnit(fiber) {
   // 新增 FC 判断
@@ -157,16 +157,16 @@ function workLoop(IdleDeadline) {
     //当前闲置时间没有时，进入到下一个闲置时间执行任务
     shouldYield = IdleDeadline.timeRemaining() < 1
   }
-  if (!nextWorkOfUnit && root) {
+  if (!nextWorkOfUnit && wipRoot) {
     commitRoot()
   }
   requestIdleCallback(workLoop)
 }
 function commitRoot() {
-  commitWork(root.child)
+  commitWork(wipRoot.child)
   // 保存渲染后的 dom 树
-  currentRoot = root
-  root = null
+  currentRoot = wipRoot
+  wipRoot = null
 }
 function commitWork(fiber) {
   if (!fiber) return
@@ -189,12 +189,12 @@ function commitWork(fiber) {
 requestIdleCallback(workLoop)
 
 function update() {
-  nextWorkOfUnit = {
+  wipRoot = {
     dom: currentRoot.dom,
     props: currentRoot.props,
     alternate: currentRoot,
   }
-  root = nextWorkOfUnit
+  nextWorkOfUnit = wipRoot
 }
 
 const React = {
