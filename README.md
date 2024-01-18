@@ -934,4 +934,77 @@ function recocile(fiber, children) {
 }
 ```
 
-  
+##   解决 edge case
+
+当我们通过变量来控制组件是否显示时，可以看到页面报错如下：
+
+```jsx
+let showBar = false
+function Counter() {
+  const bar = <div>this is bar</div>
+  function handleClick() {
+    showBar = !showBar
+    React.update()
+  }
+  return (
+    <div>
+      Counter:
+      {showBar && bar}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+// 错误如下所示
+React.js:146 Uncaught TypeError: Cannot convert undefined or null to object
+    at Function.keys (<anonymous>)
+    at updateProps (React.js:146:10)
+    at updateHostComponent (React.js:229:5)
+    at performWorkOfUnit (React.js:71:5)
+    at workLoop (React.js:49:22)
+```
+
+当我们在 `createElement` 中打印 `children` 中的属性时可以看到有一个值为 `false`，这个我们没有进行处理，因为当 `false` 的时候，我们在 `reconcile` 中不应该生成 `newFiber`，因此我们需要增加判断。
+
+```js
+function reconcile() {
+	//...
+	// 不是 sameType 时，child 为真时，才生成 newFiber
+  if (child) {
+    nextFiber = {
+    type: child.type,
+    props: child.props,
+    child: null,
+    parent: fiber,
+    sibling: null,
+    dom: null,
+    effectTag: 'placement',
+    }
+  }
+}
+```
+
+此时我们可以看到又报以下错误
+
+```js
+React.js:208 Uncaught TypeError: Cannot set properties of undefined (setting 'sibling')
+    at React.js:208:25
+    at Array.forEach (<anonymous>)
+    at reconcile (React.js:164:12)
+    at updateHostComponent (React.js:236:3)
+    at performWorkOfUnit (React.js:71:5)
+    at workLoop (React.js:49:22)
+```
+
+经过调试可知，这是由于当前没有 `nextFiber`，但是仍然会给 `prevChild` 进行赋值，从而后续对 `prevChild.sibling` 进行赋值时报错，因此我们需要判断当前 `child` 不需要生成节点的时候，不给 `prevChild` 进行赋值。
+
+```js
+function reconcile() {
+	// ...
+	// 只有当前 child 生成节点时，才赋值给 prevChild
+  if (nextFiber) {
+  	prevChild = nextFiber
+  }
+}
+```
+
+此时点击即可正常切换 `bar` 组件了。
