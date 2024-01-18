@@ -900,3 +900,38 @@ function commitDeletions(fiber) {
 }
 ```
 
+## diff - 删除多余的老节点
+
+当我们需要更新的节点一方多，一方少时，我们可以发现在切换时候，多余的老节点并不会被删除
+
+```js
+const foo = (
+    <div>
+      Foo
+      <div>foo-child</div>
+    </div>
+  )
+  const bar = <div>Bar</div>
+```
+
+![oldNode](./images/oldNode.png)
+
+由上图关系可知，我们在处理完最后一个子节点时，需要获取其对应的老节点，从而找到老节点的兄弟节点，然后将该兄弟节点删除即可。即 `bar文本`  —>  `foo 文本` —> `兄弟节点 div 删除`
+
+因此我们可以在最后处理的节点的时候将老节点添加到 `deletions` 数组中，从而完成删除
+
+在 `reconcile` 函数中，我们用来处理组件的子节点，且每次更新了 `oldFiber = oldFiber.sibling`，因此在组件更新完子节点时候，如果 `oldFiber` 还有值，则说明这是个多余的老旧节点，需要删除，且因为多余的节点不止一个，因此我们需要循环进行遍历。
+
+```js
+function recocile(fiber, children) {
+	// ...
+	// 如果 oldFiber 仍然有值，说明是老旧节点，需要删除
+  while (oldFiber) {
+    deletions.push(oldFiber)
+    // 可能存在多个老旧节点
+    oldFiber = oldFiber.sibling
+  }
+}
+```
+
+  
