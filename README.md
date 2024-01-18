@@ -816,3 +816,87 @@ function commitWork(fiber) {
 - 注意：相同事件名称更新时，需先移除掉老的事件
 
 同时这里的 `root` 无法明确具体代表什么，实际上是正在处理的 `root` (work in progress)，因此我们将其重新命名为 `wipRoot`，同时 `initChildren` 这个名称也并不是很恰当，我们与 `React` 中对齐，将其重命名为 `reconcile`
+
+## diff - 更新 children
+
+上一步骤我们对相同类型进行了更新，当 `type` 不一致时，就需要我们对老得节点进行删除，因此我们需要声明一个变量 `deletions` 来保存需要删除的节点信息，并在 `commitRoot` 函数中进行调用删除。
+
+```js
+// 待移除 dom 元素数组
+let deletions = []
+function commitRoot() {
+  deletions.forEach(commitDeletions)
+  commitWork(wipRoot.child)
+  // 清空 deletions 数组
+  deletions = []
+  // 保存渲染后的 dom 树
+  currentRoot = wipRoot
+  wipRoot = null
+}
+function commitDeletions(fiber) {
+  fiber.parent.dom.removeChild(fiber.dom)
+}
+```
+
+这时我们修改 `App.jsx`  代码如下所示，来检测是否可以正常删除
+
+```jsx
+let isFoo = false
+function Counter({ num }) {
+  const Foo = <span>foo</span>
+  const Bar = <p>Bar</p>
+  function handleClick() {
+    isFoo = !isFoo
+    console.log('click')
+    React.update()
+  }
+  return (
+    <div>
+      component:
+      <div>{isFoo ? Foo : Bar}</div>
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+经过测试此时页面能正常将老节点删除，当我们将 `Bar` 改为函数式组件时
+
+```jsx
+function Bar() {
+	return <p>Bar</p>
+}
+```
+
+可以看到页面报如下错误
+
+```js
+React.js:98 Uncaught TypeError: Failed to execute 'removeChild' on 'Node': parameter 1 is not of type 'Node'.
+    at commitDeletions (React.js:98:20)
+    at Array.forEach (<anonymous>)
+    at commitRoot (React.js:89:13)
+    at workLoop (React.js:53:5)
+```
+
+这是因为函数式组件生成的 vdom 对象上没有 `dom` 因此我们需要删除的是其 `child.dom` 元素，同时如果是修改函数式组件的内部 `dom`， 其 `parent` 不存在，因此需要递归向上寻找。或者调用 `dom.remove` 方法 将节点从其所属 `DOM` 树中删除
+
+```js
+function commitDeletions(fiber) {
+  // 有 dom 元素 直接删除
+  if (fiber.dom) {
+    // 因为可能是函数式组件内部的 dom，其 parent 不存在，因此需要递归向上寻找
+    let fiberParent = fiber.parent
+    // 如果父级没有 dom 函数值组件
+    while (!fiberParent.dom) {
+      fiberParent = fiberParent.parent
+    }
+    fiberParent.dom.removeChild(fiber.dom)
+    // 方法2 调用 dom.remove 方法 将节点从其所属 DOM 树中删除
+    // fiber.dom.remove()
+  } else {
+    // 没有 dom 元素即函数式组件，则处理其 child
+    commitDeletions(fiber.child)
+  }
+}
+```
+
