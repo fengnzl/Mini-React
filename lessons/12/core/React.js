@@ -5,7 +5,6 @@ function createElement(type, props, ...children) {
     props: {
       ...props,
       children: children.map((child) => {
-         console.log(child)
         const isTextNode = typeof child === 'string' || typeof child === 'number'
         return isTextNode ? createTextNode(child) : child
       }),
@@ -25,6 +24,7 @@ let nextWorkOfUnit
 let wipRoot = null
 let currentRoot = null
 let deletions = []
+let wipFiber = null
 function render(el, container) {
   wipRoot = {
     dom: container,
@@ -35,19 +35,26 @@ function render(el, container) {
   nextWorkOfUnit = wipRoot
 }
 function update() {
-  wipRoot = {
-    dom: currentRoot.dom,
-    props: currentRoot.props,
-    alternate: currentRoot,
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  return () => {
+    // 点击事件，获取正在更新的组件，从而保证只更新当前组件
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
   }
-  nextWorkOfUnit = wipRoot
 }
 function workLoop(IdleDeadline) {
   let shouldYield = false
   while (!shouldYield && nextWorkOfUnit) {
     // run task
     nextWorkOfUnit = performWorkOfUnit(nextWorkOfUnit)
-    if (wipRoot)
+    // 当前组件更新完成时，则 nextWorkOfUnit 设置为 undefined，从而中断任务
+    if (wipRoot?.sibling?.type === nextWorkOfUnit?.type) {
+      nextWorkOfUnit = undefined
+    }
     //当前闲置时间没有时，进入到下一个闲置时间执行任务
     shouldYield = IdleDeadline.timeRemaining() < 1
   }
@@ -222,6 +229,7 @@ function reconcile(fiber, children) {
 }
 // 处理函数式组件
 function updateFunctionComponent(fiber) {
+  wipFiber = fiber
   // 函数式组件不用生成 dom
   const children = [fiber.type(fiber.props)]
   reconcile(fiber, children)

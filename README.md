@@ -1008,3 +1008,182 @@ function reconcile() {
 ```
 
 此时点击即可正常切换 `bar` 组件了。
+
+## 优化更新 减少不必要的计算
+
+上述更新代码，我们每次都是从 `root` 根节点进行比对更新，如以下案列
+
+```jsx
+let barCount = 1
+function Bar() {
+  console.log('Bar return')
+  function handleClick() {
+    barCount++
+    React.update()
+  }
+  return (
+    <div>
+      BarCounter: {barCount}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+let fooCount = 1
+function Foo() {
+  console.log('Foo return')
+  function handleClick() {
+    fooCount++
+    React.update()
+  }
+  return (
+    <div>
+      FooCounter: {fooCount}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+let rootCount = 1
+function App() {
+  console.log('app return')
+  function handleClick() {
+    rootCount++
+    React.update()
+  }
+  return (
+    <div id="app">
+      hello-mini-react
+      <div>
+        {rootCount} <button onClick={handleClick}>click</button>
+      </div>
+      <Bar />
+      <Foo />
+    </div>
+  )
+}
+export default App
+```
+
+当我们点击 `Bar` 组件的 `click` 按钮，会发现控制台输出信息如下：
+
+```js
+App.jsx:31 app return
+16:36:06.776 App.jsx:3 Bar return
+16:36:06.777 App.jsx:17 Foo return
+```
+
+这说明当组件 `Bar` 点击事件触发是，整个 `App` 组件都进行了更新，实际上我们只需要更新 `Bar` 组件即可。为了只更新  `Bar` 组件及孩子节点，主要分为两个步骤
+
+- 更新起点：找到正在更新的组件
+- 更新终点：更新任务中的节点是否是起点对应的相邻节点，如更新 `Bar` 组件，当下一个更新单元是 `Foo` 组件时，说明当前 `Bar` 组件已经完成了跟新
+
+因此我们在 `update` 函数中不能每次定义下一个更新单元 `nextWorkOfUnit` 设置为记录的根组件信息 `currentRoot`。而是要获取当前正在更新的组件节点信息。我们可以定义一个变量 `wipFiber` 来保存当前应当更新组件信息。在 `updateFunctionComponent` 函数中记录组件信息。
+
+```js
+// 处理函数式组件
+function updateFunctionComponent(fiber) {
+  wipFiber = fiber
+  // 函数式组件不用生成 dom
+  const children = [fiber.type(fiber.props)]
+  reconcile(fiber, children)
+}
+```
+
+此时我们在 `update` 函数中添加输出 `wipFiber` 语句，此时点击 `Bar` 组件，可以看到输出的却是 `Foo` 组件信息，因为渲染时，最后调用的 `updateFunctionComponent` 处理的是  `Foo` 组件。因此就需要我们思考如何在 `update` 函数中获取当前更新组件信息。
+
+我们可以使用闭包来解决这个问题，首先定义一个变量 `currentFiber` 来记录当前的组件信息，然后返回一个函数，后续我们组件更新调用的是返回的函数，我们在组件中先调用 `update` 函数，这时第一次渲染组件的时候的 `fiber` 就是当前组件，后续更新时候我们使用 `currentFiber` 来获取当前正在更新的组件。
+
+```js
+function update() {
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  return () => {
+    debugger
+    // 点击事件，获取正在更新的组件，从而保证只更新当前组件
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+}
+```
+
+此时我们的 `App.jsx` 修改如下：
+
+```jsx
+let barCount = 1
+function Bar() {
+  console.log('Bar return')
+  // 第一次渲染时候就调用，通过闭包将当前的 fiber 存入变量
+  const update = React.update()
+  function handleClick() {
+    barCount++
+    update()
+  }
+  return (
+    <div>
+      BarCounter: {barCount}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+let fooCount = 1
+function Foo() {
+  console.log('Foo return')
+  const update = React.update()
+  function handleClick() {
+    fooCount++
+    update()
+  }
+  return (
+    <div>
+      FooCounter: {fooCount}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+let rootCount = 1
+function App() {
+  console.log('app return')
+  const update = React.update()
+  function handleClick() {
+    rootCount++
+    update()
+  }
+  return (
+    <div id="app">
+      hello-mini-react
+      <div>
+        {rootCount} <button onClick={handleClick}>click</button>
+      </div>
+      <Bar />
+      <Foo />
+    </div>
+  )
+}
+export default App
+```
+
+这样我们已经完成了第一步了，剩下就是判断当前组件是否更新完成，我们只需要在 `workLoop` 中判断下一个更新的单元类型是否是与当前更新组件的相邻节点的类型一致即可。
+
+```js
+function workLoop(IdleDeadline) {
+  let shouldYield = false
+  while (!shouldYield && nextWorkOfUnit) {
+    // run task
+    nextWorkOfUnit = performWorkOfUnit(nextWorkOfUnit)
+    // 当前组件更新完成时，则 nextWorkOfUnit 设置为 undefined，从而中断任务
+    if (wipRoot?.sibling?.type === nextWorkOfUnit?.type) {
+      nextWorkOfUnit = undefined
+    }
+    //当前闲置时间没有时，进入到下一个闲置时间执行任务
+    shouldYield = IdleDeadline.timeRemaining() < 1
+  }
+  if (!nextWorkOfUnit && wipRoot) {
+    commitRoot()
+  }
+  requestIdleCallback(workLoop)
+}
+```
+
+此时我们在进行测试可以发现，更新组件时，只会更新自身的节点，而不会整个 `root` 节点进行更新。
