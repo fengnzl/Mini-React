@@ -1327,3 +1327,108 @@ function updateFunctionComponent(fiber) {
 
 此时我们再次点击页面，可以看到 `count` 和 `bar` 变量都可以正常进行更新
 
+## 批量执行 action
+
+上面每次执行 `setState` 的时候，我们都会立即执行 `action` 函数，实际上一个变量从 11最终变到15，中间变化的量实际我们并不需要渲染，只最后进行一次渲染即可，因此我们需要通过一个队列保存 `setState` 时候的 `action` ，在下次执行 `useState` 的时候取出统一执行，即可实现只对最终值进行渲染，因此我们可以优化成如下形式
+
+```js
+function useState(initial) {
+  // 调用 setState 之后，页面应该重新渲染，所以需要将 update 函数功能移植过来
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  // 取得之前的state 信息
+  const oldHook = currentFiber?.alternate?.stateHooks[stateHookIndex]
+  const stateHook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: oldHook ? oldHook.queue : []
+  }
+  // 批量执行 action
+  stateHook.queue.forEach((action) => {
+    stateHook.state = action(stateHook.state)
+  })
+  // 执行完后，清空队列
+  stateHook.queue = []
+
+  stateHookIndex++
+  // 将更新后的 state 信息保存在 节点上
+  stateHooks.push(stateHook)
+  currentFiber.stateHooks = stateHooks
+
+  function setState(action) {
+    // 将 action 存入队列中，在下次执行 useState 时批量执行
+    stateHook.queue.push(action)
+    // 对需要渲染的 wipRoot 进行赋值
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+  return [stateHook.state, setState]
+}
+```
+
+此时，我们的页面可以正常渲染，因为我们在 `setState` 的时候直接传入一个变量，而不是函数，如下所示
+
+```jsx
+function Foo() {
+  const [count, setCount] = React.useState(0)
+  const [bar, setBar] = React.useState('bar')
+  function handleClick() {
+    setCount((c) => c + 1)
+    setBar('barChanged')
+  }
+  return (
+    <div>
+      {count}
+      <div>{bar}</div>
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+因此，我们只需在处理 `action` 时稍加进行判断，即可正常渲染
+
+```js
+// 将 action 存入队列中，在下次执行 useState 时批量执行
+stateHook.queue.push(typeof action === 'function' ? action : () => action)
+```
+
+同时，我们这里应该对变化后的变量进行提前检测，如果经过一系列变动后值实际没有变，我们这里不应该对 `wipRoot` 赋值进行更新
+
+```js
+ function setState(action) {
+    // 判断变量是否发生改变，如果没有发生改变，则不执行更新
+    const eagerState = typeof action === 'function' ? action(stateHook.state) : action
+    if (eagerState === stateHook.state) return
+    // 将 action 存入队列中，在下次执行 useState 时批量执行
+    stateHook.queue.push(typeof action === 'function' ? action : () => action)
+    // 对需要渲染的 wipRoot 进行赋值
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+```
+
+```jsx
+function Foo() {
+  console.log('re foo')
+  const [count, setCount] = React.useState(0)
+  const [bar, setBar] = React.useState('bar')
+  function handleClick() {
+    // setCount((c) => c + 1)
+    setBar('bar') // 当设置的值没有变化时，不会重新渲染，控制台不会输出 re foo
+  }
+  return (
+    <div>
+      {count}
+      <div>{bar}</div>
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
