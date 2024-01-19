@@ -1187,3 +1187,143 @@ function workLoop(IdleDeadline) {
 ```
 
 此时我们在进行测试可以发现，更新组件时，只会更新自身的节点，而不会整个 `root` 节点进行更新。
+
+## 实现 useState
+
+我们先实现最基础的 `useState` 功能，接收一个初始值，然后  `setCount` 函数先只能接收一个回调函数，`setCount` 函数调用之后 `count` 值会改变，并且页面会渲染出最新值
+
+```jsx
+function App() {
+  const [count, setCount] = useState(0)
+  function handleClick() {
+    setCount((c) => c + 1)
+  }
+  return (
+    <div id="app">
+      hello-mini-react
+      <div>
+        {count} <button onClick={handleClick}>click</button>
+      </div>
+      <Bar />
+      <Foo />
+    </div>
+  )
+}
+export default App
+```
+
+基于上述我们可以写出 `useState` 函数基础结构如下
+
+```js
+function useState(initial) {
+  // 调用 setState 之后，页面应该重新渲染，所以需要将 update 函数功能移植过来
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  const stateHook = {
+    state: initial,
+  }
+  function setState(action) {
+
+    // 对需要渲染的 wipRoot 进行赋值
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+  return [stateHook.state, setState]
+}
+```
+
+当调用 `setState` 之后，我们需要执行回调函数，更新 `state` 值，同时我们需要保存上一次 `state` 值，否则每次渲染之后 `state` 都是初始值，因此我们可以保存到当前节点上，从而该节点更新时可以获取上一次的值
+
+```js
+function useState(initial) {
+  // 调用 setState 之后，页面应该重新渲染，所以需要将 update 函数功能移植过来
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  // 取得之前的state 信息
+  const oldHook = currentFiber?.alternate?.stateHook
+  const stateHook = {
+    state: oldHook ? oldHook.state : initial,
+  }
+  // 将更新后的 state 信息保存在 节点上
+  currentFiber.stateHook = stateHook
+
+  function setState(action) {
+    stateHook.state = action(stateHook.state)
+    // 对需要渲染的 wipRoot 进行赋值
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+  return [stateHook.state, setState]
+}
+```
+
+此时我们点击可以发现 `count` 可以正常更新展示，但是当我们在一个组件中使用多个 `useState` 时，会发现所有的变量都会变成最后一个，案例如下
+
+```jsx
+function Foo() {
+  const [count, setCount] = React.useState(0)
+  const [bar, setBar] = React.useState('bar')
+  function handleClick() {
+    setCount((c) => c + 1)
+    setBar((c) => c + 'bar')
+  }
+  return (
+    <div>
+      {count}
+      <div>{bar}</div>
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+当我们点击之后，可以看到 `count` 值也展示成跟 `bar` 变量一样，这时因为在 `useState` 时，后者会覆盖前者，因此我们需要使用一个数组和索引来保存当前函数式组件的 `state` 变量和索引值，从而更新时，可以准确判断具体修改的变量，代码修改如下
+
+```js
+let stateHooks
+let stateHookIndex
+function useState(initial) {
+  // 调用 setState 之后，页面应该重新渲染，所以需要将 update 函数功能移植过来
+  // 渲染时，将当前组件信息存入 currentFiber
+  const currentFiber = wipFiber
+  // 取得之前的state 信息
+  const oldHook = currentFiber?.alternate?.stateHooks[stateHookIndex]
+  const stateHook = {
+    state: oldHook ? oldHook.state : initial,
+  }
+  stateHookIndex++
+  // 将更新后的 state 信息保存在 节点上
+  stateHooks.push(stateHook)
+  currentFiber.stateHooks = stateHooks
+
+  function setState(action) {
+    stateHook.state = action(stateHook.state)
+    // 对需要渲染的 wipRoot 进行赋值
+    wipRoot = {
+      ...currentFiber,
+      alternate: currentFiber,
+    }
+    nextWorkOfUnit = wipRoot
+  }
+  return [stateHook.state, setState]
+}
+// 处理函数式组件
+function updateFunctionComponent(fiber) {
+  // 在处理函数式组件时，初始化对应的 stateHooks 和 index 的临时变量
+  stateHooks = []
+  stateHookIndex = 0
+  wipFiber = fiber
+  // 函数式组件不用生成 dom
+  const children = [fiber.type(fiber.props)]
+  reconcile(fiber, children)
+}
+```
+
+此时我们再次点击页面，可以看到 `count` 和 `bar` 变量都可以正常进行更新
+
