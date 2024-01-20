@@ -1587,3 +1587,67 @@ function useEffect(callback, deps) {
 }
 ```
 
+## 实现 cleanup
+
+如果在 `useEffect` 的回调函数返回一个 `cleanup` 函数时，`cleanup` 函数会在调用 `useEffect` 之前进行调用，同时当 `deps` 为空时，不会调用返回的 `cleanup` 函数，如以下代码：
+
+```js
+function commitEffectHooks() {
+  function run(fiber) {
+    if (!fiber) return
+    // 没有关联的老节点说明是初始化
+    if (!fiber.alternate) {
+      // init
+      fiber.effectHooks?.forEach(hook => {
+        // 回调函数返回 cleanup 函数则需要保存起来
+        hook.cleanup = hook.callback()
+      })
+    } else {
+      // update
+      // 需要判断当前值和之前值是否发生变化
+      fiber.effectHooks?.forEach(
+        (newHook, index) => {
+          // 只有存在依赖时，才去做相应的判断调用
+          if (newHook.deps.length > 0) {
+            const oldHook = fiber.alternate?.effectHooks[index]
+            const needUpdate = oldHook?.deps.some((oldDep, i) => {
+              return oldDep !== newHook.deps[i]
+            })
+            // 回调函数返回 cleanup 函数则需要保存起来
+            needUpdate && (newHook.cleanup = newHook?.callback())
+          }
+        }
+      )
+      
+    }
+    run(fiber.child)
+    run(fiber.sibling)
+  }
+  function runCleanup(fiber) {
+    if (!fiber) {
+      return
+    }
+    fiber?.alternate?.effectHooks?.forEach(hook => {
+      if (hook.deps.length) {
+        hook.cleanup?.()
+      }
+    })
+    runCleanup(fiber.child)
+    runCleanup(fiber.sibling)
+  }
+  // 在处理所有的 effect 之前，调用 cleanup 函数
+  runCleanup(wipRoot)
+  run(wipRoot)
+}
+let effectHooks
+function useEffect(callback, deps) {
+  const effectHook = {
+    callback,
+    deps,
+    cleanup: undefined
+  }
+  effectHooks.push(effectHook)
+  wipFiber.effectHooks = effectHooks
+}
+```
+
