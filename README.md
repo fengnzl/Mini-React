@@ -1432,3 +1432,158 @@ function Foo() {
 }
 ```
 
+## 实现 useEffect
+
+`useEffect` 函数是在 `React` 处理完 `DOM`，浏览器还没渲染之前调用，它接收一个回调函数和依赖数组，如果依赖数组为空数组，则只会在组件初始化时调用，如下所示，我们先从最简单依赖数组为空来一步步实现 `useEffect` 函数
+
+```jsx
+function Foo() {
+  console.log('re foo')
+  const [count, setCount] = React.useState(0)
+  React.useEffect(() => {
+    console.log('init')
+  }, [])
+  function handleClick() {
+    setCount((c) => c + 1)
+  }
+  return (
+    <div>
+      {count}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+根据上面描述，我们可以类似 `useStat`  函数一样，先定义一个 `effectHook` 对象，并将该对象放在 `wi pFiber` 上，然后在处理完 `DOM` 之后进行 `callback` 的调用，也就是在 `commitRoot` 函数中 `commitWork` 之后，主要代码如下所示：
+
+```js
+function commitRoot() {
+  deletions.forEach(commitDeletions)
+  commitWork(wipRoot.child)
+  commitEffectHook()
+  // 清空 deletions 数组
+  deletions = []
+  // 保存渲染后的 dom 树
+  currentRoot = wipRoot
+  wipRoot = null
+}
+function commitEffectHook() {
+  function run(fiber) {
+		if (!fiber) return
+    // 不存在旧节点 说明是第一次渲染
+    if (!fiber.alternate) {
+      fiber.effectHook?.callback()
+    }
+    run(fiber.child)
+    run(fiber.sibling)
+  }
+  run(wipRoot)
+}
+function useEffect(callback, deps) {
+  const effectHook = {
+    callback,
+    deps
+  }
+  wipFiber.effectHook = effectHook
+}
+```
+
+这时，页面在渲染的时候会输出 `init`，当触发点击事件时，只会输出 `re foo`， 而 `init` 不会呗输出，说明上述功能已完成。
+
+现在我们需要处理传递依赖的情况，当传递了依赖，那么当依赖发生改变时，回调函数会再次被调用，因此我们需要区分初始化和更新阶段从而进行不同的处理
+
+```jsx
+function Foo() {
+  console.log('re foo')
+  const [count, setCount] = React.useState(0)
+  React.useEffect(() => {
+    console.log('count', count)
+  }, [count])
+  function handleClick() {
+    setCount((c) => c + 1)
+  }
+  return (
+    <div>
+      {count}
+      <button onClick={handleClick}>click</button>
+    </div>
+  )
+}
+```
+
+此时我们在 `commitEffectHook` 函数上增加对更新的判断代码，如下所示：
+
+```js
+function commitEffectHook() {
+  function run(fiber) {
+    if (!fiber) return
+    // 没有关联的老节点说明是初始化
+    if (!fiber.alternate) {
+      // init
+      fiber.effectHook?.callback()
+    } else {
+      // update
+      // 需要判断当前值和之前值是否发生变化
+      const oldEffectHook = fiber.alternate?.effectHook
+      const needUpdate = oldEffectHook?.deps.some((oldDep, index) => {
+        return oldDep !== fiber.effectHook.deps[index]
+      })
+      needUpdate && fiber.effectHook?.callback()
+    }
+    run(fiber.child)
+    run(fiber.sibling)
+  }
+  run(wipRoot)
+}
+```
+
+这时我们点击按钮，会发现随着 `count` 变量的变化，`useEffect` 的回调函数也会随之被调用，这里我们只是支持单个 `useEffect`，为了支持多个 `useEffect` 同时调用，我们需要像  `useState` 一样，使用一个数组用来保存 `effectHook` 数据，主要逻辑变动如下
+
+```js
+// 处理函数式组件
+function updateFunctionComponent(fiber) {
+  // 在处理函数式组件时，初始化对应的 effectHooks 临时变量
+  effectHooks = []
+  //...
+}
+function commitEffectHooks() {
+  function run(fiber) {
+    if (!fiber) return
+    // 没有关联的老节点说明是初始化
+    if (!fiber.alternate) {
+      // init
+      fiber.effectHooks?.forEach(hook => hook.callback())
+    } else {
+      // update
+      // 需要判断当前值和之前值是否发生变化
+      fiber.effectHooks?.forEach(
+        (newHook, index) => {
+          // 只有存在依赖时，才去做相应的判断调用
+          if (newHook.deps.length > 0) {
+            const oldHook = fiber.alternate?.effectHooks[index]
+            const needUpdate = oldHook?.deps.some((oldDep, i) => {
+              return oldDep !== newHook.deps[i]
+            })
+            needUpdate && newHook?.callback()
+          }
+        }
+      )
+      
+    }
+    run(fiber.child)
+    run(fiber.sibling)
+  }
+  run(wipRoot)
+}
+let effectHooks
+function useEffect(callback, deps) {
+  const effectHook = {
+    callback,
+    deps
+  }
+  effectHooks.push(effectHook)
+  wipFiber.effectHooks = effectHooks
+}
+```
+
